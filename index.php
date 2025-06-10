@@ -200,6 +200,14 @@ foreach ($pathParts as $part) {
         'path' => $currentPath
     ];
 }
+
+// 提取所有音频文件
+$audioFiles = [];
+foreach ($items as $item) {
+    if ($item['type'] === 'file' && in_array(strtolower($item['extension']), ['mp3', 'wav', 'ogg'])) {
+        $audioFiles[] = $item;
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -226,33 +234,93 @@ foreach ($pathParts as $part) {
             display: none;
             position: fixed;
             z-index: 1;
-            padding-top: 100px;
+            padding-top: 0;
             left: 0;
             top: 0;
             width: 100%;
             height: 100%;
             overflow: auto;
-            background-color: rgba(0,0,0,0.4);
+            background-color: rgba(0,0,0,0.8);
         }
         .modal-content {
-            background-color: #fefefe;
-            margin: auto;
-            padding: 20px;
-            border: 1px solid #888;
-            width: 300px;
+            background-color: transparent;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            position: relative;
         }
         .close {
-            color: #aaaaaa;
-            float: right;
-            font-size: 28px;
+            color: white;
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            font-size: 40px;
             font-weight: bold;
+            z-index: 2;
         }
         .close:hover, .close:focus {
-            color: #000;
+            color: #999;
             text-decoration: none;
             cursor: pointer;
         }
+        .modal-media {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
         .actions button { margin-right: 5px; }
+        .media-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 200px;
+            height: 100px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+            cursor: pointer;
+        }
+        .media-container {
+            position: relative;
+            width: 200px;
+            height: 100px;
+        }
+        .audio-player {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+        }
+        .audio-controls {
+            display: flex;
+            align-items: center;
+            margin-top: 5px;
+        }
+        .audio-controls button {
+            margin-right: 5px;
+            padding: 5px 10px;
+        }
+        .playlist {
+            margin-top: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .playlist-item {
+            padding: 5px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        .playlist-item.active {
+            background-color: #f0f0f0;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -338,9 +406,34 @@ foreach ($pathParts as $part) {
                                 if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif'])) {
                                     echo "<img src='$fileUrl' alt='图片预览' onclick=\"openImageModal('$fileUrl')\">";
                                 } elseif (in_array($ext, ['mp4', 'webm', 'ogg'])) {
-                                    echo "<video controls><source src='$fileUrl' type='video/$ext'>不支持的视频格式</video>";
+                                    echo "<div class='media-placeholder' onclick=\"openVideoModal('$fileUrl', '$ext')\">";
+                                    echo "点击播放视频 <i class='material-icons'>play_arrow</i>";
+                                    echo "</div>";
                                 } elseif (in_array($ext, ['mp3', 'wav', 'ogg'])) {
-                                    echo "<audio controls><source src='$fileUrl' type='audio/$ext'>不支持的音频格式</audio>";
+                                    echo "<div class='media-container' data-path='{$item['path']}'>";
+                                    echo "<div class='media-placeholder' onclick=\"toggleAudio(this)\">";
+                                    echo "点击播放音频 <i class='material-icons'>play_arrow</i>";
+                                    echo "</div>";
+                                    echo "<div class='audio-player'>";
+                                    echo "<audio id='audio-{$item['path']}' controls preload='none'>";
+                                    echo "<source src='$fileUrl' type='audio/$ext'>";
+                                    echo "您的浏览器不支持音频播放";
+                                    echo "</audio>";
+                                    echo "<div class='audio-controls'>";
+                                    echo "<button onclick=\"changePlayMode('{$item['path']}')\" id='play-mode-{$item['path']}'>顺序播放</button>";
+                                    echo "<button onclick=\"playPrevious('{$item['path']}')\">上一首</button>";
+                                    echo "<button onclick=\"playNext('{$item['path']}')\">下一首</button>";
+                                    echo "</div>";
+                                    echo "<div class='playlist' id='playlist-{$item['path']}'>";
+                                    foreach ($audioFiles as $audio) {
+                                        $activeClass = ($audio['path'] === $item['path']) ? 'active' : '';
+                                        echo "<div class='playlist-item $activeClass' onclick=\"playAudio('{$audio['path']}')\">";
+                                        echo htmlspecialchars($audio['name']);
+                                        echo "</div>";
+                                    }
+                                    echo "</div>";
+                                    echo "</div>";
+                                    echo "</div>";
                                 } else {
                                     echo "-";
                                 }
@@ -362,7 +455,17 @@ foreach ($pathParts as $part) {
         <!-- 图片查看模态框 -->
         <div id="imageModal" class="modal">
             <span class="close" onclick="closeImageModal()">&times;</span>
-            <img class="modal-content" id="modalImage">
+            <div class="modal-content">
+                <img class="modal-media" id="modalImage">
+            </div>
+        </div>
+        
+        <!-- 视频播放模态框 -->
+        <div id="videoModal" class="modal">
+            <span class="close" onclick="closeVideoModal()">&times;</span>
+            <div class="modal-content">
+                <video class="modal-media" controls autoplay></video>
+            </div>
         </div>
         
         <!-- 重命名模态框 -->
@@ -405,18 +508,180 @@ foreach ($pathParts as $part) {
     </div>
     
     <script>
+        // 存储播放模式：0-顺序播放，1-随机播放
+        const playModes = {};
+        
         // 图片查看模态框功能
         function openImageModal(imgUrl) {
             const modal = document.getElementById('imageModal');
             const modalImage = document.getElementById('modalImage');
+            
+            // 关闭其他模态框
+            closeVideoModal();
             
             modal.style.display = 'block';
             modalImage.src = imgUrl;
         }
         
         function closeImageModal() {
-            const modal = document.getElementById('imageModal');
+            document.getElementById('imageModal').style.display = 'none';
+        }
+        
+        // 视频播放模态框功能
+        function openVideoModal(videoUrl, ext) {
+            const modal = document.getElementById('videoModal');
+            const video = modal.querySelector('video');
+            
+            // 关闭其他模态框
+            closeImageModal();
+            
+            // 设置视频源
+            video.innerHTML = ''; // 清空现有源
+            const source = document.createElement('source');
+            source.src = videoUrl;
+            source.type = 'video/' + ext;
+            video.appendChild(source);
+            
+            // 显示模态框并播放
+            modal.style.display = 'block';
+            video.load();
+            video.play().catch(e => {
+                console.log("自动播放失败:", e);
+                // 尝试手动触发播放
+                video.addEventListener('click', function() {
+                    video.play();
+                });
+            });
+        }
+        
+        function closeVideoModal() {
+            const modal = document.getElementById('videoModal');
+            const video = modal.querySelector('video');
+            
+            // 暂停视频并清空源
+            video.pause();
+            video.innerHTML = '';
+            
             modal.style.display = 'none';
+        }
+        
+        // 音频播放切换功能
+        function toggleAudio(placeholder) {
+            // 获取父容器和播放器
+            const container = placeholder.parentElement;
+            const player = container.querySelector('.audio-player');
+            const audio = player.querySelector('audio');
+            const path = container.dataset.path;
+            
+            // 初始化播放模式
+            if (playModes[path] === undefined) {
+                playModes[path] = 0; // 默认顺序播放
+            }
+            
+            // 更新播放模式按钮文本
+            document.getElementById(`play-mode-${path}`).textContent = 
+                playModes[path] === 0 ? '顺序播放' : '随机播放';
+            
+            // 隐藏所有其他音频播放器，停止所有音频
+            document.querySelectorAll('.audio-player').forEach(p => {
+                if (p !== player) {
+                    p.style.display = 'none';
+                    const otherAudio = p.querySelector('audio');
+                    if (otherAudio) otherAudio.pause();
+                }
+            });
+            
+            // 显示所有其他占位符
+            document.querySelectorAll('.media-placeholder').forEach(ph => {
+                if (ph !== placeholder) {
+                    ph.style.display = 'flex';
+                }
+            });
+            
+            if (player.style.display === 'none') {
+                // 隐藏占位符，显示播放器
+                placeholder.style.display = 'none';
+                player.style.display = 'block';
+                
+                // 如果音频还没有加载，则加载并播放
+                if (audio.readyState === 0) {
+                    audio.load();
+                }
+                
+                // 尝试播放音频
+                audio.play().catch(e => {
+                    console.log("自动播放失败:", e);
+                });
+                
+                // 设置音频结束事件监听
+                audio.onended = function() {
+                    playNext(path);
+                };
+            } else {
+                // 隐藏播放器，显示占位符
+                player.style.display = 'none';
+                placeholder.style.display = 'flex';
+                audio.pause();
+            }
+        }
+        
+        // 切换播放模式
+        function changePlayMode(path) {
+            playModes[path] = playModes[path] === 0 ? 1 : 0;
+            const button = document.getElementById(`play-mode-${path}`);
+            button.textContent = playModes[path] === 0 ? '顺序播放' : '随机播放';
+        }
+        
+        // 播放指定音频
+        function playAudio(path) {
+            // 找到对应的音频容器
+            const container = document.querySelector(`.media-container[data-path="${path}"]`);
+            if (!container) return;
+            
+            const placeholder = container.querySelector('.media-placeholder');
+            toggleAudio(placeholder);
+        }
+        
+        // 播放上一首
+        function playPrevious(path) {
+            const audioFiles = Array.from(document.querySelectorAll('.media-container')).map(c => c.dataset.path);
+            const currentIndex = audioFiles.indexOf(path);
+            
+            if (currentIndex === -1) return;
+            
+            let prevIndex;
+            if (currentIndex === 0) {
+                prevIndex = audioFiles.length - 1; // 第一首的上一首是最后一首
+            } else {
+                prevIndex = currentIndex - 1;
+            }
+            
+            playAudio(audioFiles[prevIndex]);
+        }
+        
+        // 播放下一首
+        function playNext(path) {
+            const audioFiles = Array.from(document.querySelectorAll('.media-container')).map(c => c.dataset.path);
+            const currentIndex = audioFiles.indexOf(path);
+            
+            if (currentIndex === -1) return;
+            
+            let nextIndex;
+            if (playModes[path] === 1) {
+                // 随机播放
+                do {
+                    nextIndex = Math.floor(Math.random() * audioFiles.length);
+                } while (nextIndex === currentIndex && audioFiles.length > 1);
+            } else {
+                // 顺序播放
+                if (currentIndex === audioFiles.length - 1) {
+                    nextIndex = 0; // 最后一首的下一首是第一首
+                } else {
+                    nextIndex = currentIndex + 1;
+                }
+            }
+            
+            playAudio(audioFiles[nextIndex]);
         }
         
         // 重命名模态框功能
@@ -424,6 +689,10 @@ foreach ($pathParts as $part) {
             const modal = document.getElementById('renameModal');
             const oldPathInput = document.getElementById('renameOldPath');
             const newNameInput = document.getElementById('renameNewName');
+            
+            // 关闭其他模态框
+            closeImageModal();
+            closeVideoModal();
             
             oldPathInput.value = path;
             newNameInput.value = name;
@@ -439,8 +708,7 @@ foreach ($pathParts as $part) {
         }
         
         function closeRenameModal() {
-            const modal = document.getElementById('renameModal');
-            modal.style.display = 'none';
+            document.getElementById('renameModal').style.display = 'none';
         }
         
         // 移动模态框功能
@@ -449,6 +717,10 @@ foreach ($pathParts as $part) {
             const sourcePathInput = document.getElementById('moveSourcePath');
             const fileNameSpan = document.getElementById('moveFileName');
             const targetDirSelect = document.getElementById('moveTargetDir');
+            
+            // 关闭其他模态框
+            closeImageModal();
+            closeVideoModal();
             
             sourcePathInput.value = path;
             fileNameSpan.textContent = name;
@@ -465,20 +737,27 @@ foreach ($pathParts as $part) {
         }
         
         function closeMoveModal() {
-            const modal = document.getElementById('moveModal');
-            modal.style.display = 'none';
+            document.getElementById('moveModal').style.display = 'none';
         }
         
         // 点击模态框外部关闭
         window.onclick = function(event) {
             const modals = [
                 document.getElementById('imageModal'),
+                document.getElementById('videoModal'),
                 document.getElementById('renameModal'),
                 document.getElementById('moveModal')
             ];
             
             modals.forEach(modal => {
                 if (event.target === modal) {
+                    // 关闭模态框时暂停媒体
+                    if (modal.id === 'videoModal') {
+                        const video = modal.querySelector('video');
+                        video.pause();
+                        video.innerHTML = '';
+                    }
+                    
                     modal.style.display = 'none';
                 }
             });
